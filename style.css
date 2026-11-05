@@ -263,3 +263,54 @@ img{max-width:100%}
   .photo-card{width:224px;height:284px}
   .trust-chips span{font-size:10.5px;padding:7px 10px}
 }
+
+/* ===== v7: user feedback fixes (2026-11-05) ===== */
+.cert-image{cursor:zoom-in}
+.tap-hint{color:#b79fff;font-weight:600}
+.lightbox{position:fixed;inset:0;z-index:200;background:rgba(5,5,8,.93);backdrop-filter:blur(8px);display:none;place-items:center;padding:20px}
+.lightbox.open{display:grid}
+.lightbox img{max-width:min(1000px,94vw);max-height:82vh;object-fit:contain;background:#fff;border-radius:10px;box-shadow:0 40px 120px #000}
+.lightbox p{color:#cfcfd6;font-size:13px;text-align:center;max-width:640px;margin:14px auto 0}
+.lb-close{position:absolute;top:18px;right:18px;width:44px;height:44px;border-radius:50%;border:1px solid #ffffff30;background:#ffffff12;color:#fff;font-size:17px;cursor:pointer}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start}
+.ic{width:46px;height:46px;flex:none;border-radius:13px;display:grid;place-items:center;background:linear-gradient(145deg,rgba(155,124,255,.20),rgba(155,124,255,.05));border:1px solid rgba(155,124,255,.35);color:#bfaaff}
+.ic svg{width:23px;height:23px}
+.ic-letter{font:800 22px 'Space Grotesk',sans-serif;color:#bfaaff}
+.services article:hover .ic,.steps article:hover .ic{background:linear-gradient(145deg,#9b7cff,#7655ed);color:#fff}
+.steps article{transition:.3s}
+.steps article:hover{background:#101015}
+.steps h3{margin-top:26px}
+.laptop-wrap{display:grid;place-items:center;margin:4px 0 46px}
+.laptop{width:min(680px,94%)}
+.lap-screen{border:1px solid #ffffff22;border-bottom:0;border-radius:16px 16px 0 0;background:#0e0e13;padding:16px;box-shadow:0 34px 90px rgba(0,0,0,.55)}
+.lap-bar{display:flex;gap:6px;align-items:center;margin-bottom:14px}
+.lap-bar i{width:9px;height:9px;border-radius:50%;background:#ffffff2c}
+.lap-bar span{margin-left:8px;font-size:10px;letter-spacing:1.6px;color:#8b8b93;text-transform:uppercase}
+.lap-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.lap-kpis div{background:#14141b;border:1px solid #ffffff10;border-radius:12px;padding:12px 14px}
+.lap-kpis small{display:block;color:#8b8b93;font-size:9px;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px}
+.lap-kpis strong{font:700 20px 'Space Grotesk',sans-serif;letter-spacing:-.5px}
+.lap-chart{display:flex;align-items:flex-end;gap:8px;height:92px;margin-top:12px;background:#14141b;border:1px solid #ffffff10;border-radius:12px;padding:14px 14px 10px}
+.lap-chart i{flex:1;height:var(--h);background:linear-gradient(180deg,#b79fff,#7655ed);border-radius:5px 5px 2px 2px}
+.lap-badge{display:inline-block;margin-top:12px;background:rgba(37,211,102,.13);color:#4be07f;border:1px solid rgba(37,211,102,.3);padding:7px 13px;border-radius:100px;font-size:11px;font-weight:600}
+.lap-base{height:13px;background:linear-gradient(#1d1d24,#0f0f13);border:1px solid #ffffff16;border-radius:0 0 16px 16px}
+.dash-head{display:flex;align-items:center;gap:10px;font-size:11px;font-weight:700;letter-spacing:2.2px;color:#bfaaff;margin-bottom:16px}
+.live-dot{width:8px;height:8px;border-radius:50%;background:#25d366;animation:waPulse 2s ease-out infinite}
+.dash-sub{margin-left:auto;color:#777;font-weight:500}
+.stats-grid{border-radius:18px;overflow:hidden;background:#0e0e12}
+.spark{display:flex;align-items:flex-end;gap:4px;height:26px;margin-top:16px}
+.spark i{width:15px;height:var(--h);background:rgba(155,124,255,.4);border-radius:3px}
+.stats-grid .accent .spark i{background:rgba(9,9,11,.3)}
+.cpl-track{height:8px;background:rgba(9,9,11,.22);border-radius:99px;margin-top:18px;overflow:hidden}
+.cpl-track i{display:block;height:100%;width:89%;background:#09090b;border-radius:99px}
+.cpl-note{display:block;margin-top:9px;font-size:11px;color:#241957;font-weight:600}
+.offer-actions{gap:14px;flex-wrap:wrap}
+.offer-actions .btn{min-width:235px;text-align:center;padding:15px 24px;font-size:14px}
+.tool img{filter:none!important;width:32px;height:32px;background:#fff;border-radius:9px;padding:4px;opacity:1}
+.photo-card img{object-position:50% 16%}
+@media(max-width:700px){
+        .offer-actions{flex-direction:column;align-items:stretch}
+  .offer-actions .btn{width:100%;min-width:0}
+  .lap-kpis strong{font-size:16px}
+  .lap-chart{height:70px}
+}
