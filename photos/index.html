@@ -123,10 +123,10 @@
 
 <footer>Drive photos come from the shared "Company Photos" folder. Photos you upload here stay in this browser on this device.</footer>
 
-<script src="lib/face-api.js"></script>
-<script src="lib/jszip.min.js"></script>
+<script src="/photos/lib/face-api.js"></script>
+<script src="/photos/lib/jszip.min.js"></script>
 <script>
-const MODEL_URL = 'model';
+const MODEL_URL = '/photos/model';
 const MATCH_THRESHOLD = 0.55;
 let modelsReady = false;
 let db = null;
@@ -621,7 +621,7 @@ function setDriveInfoFinal(){
       const savedNames = JSON.parse(localStorage.getItem('driveNames') || '{}');
       const still = [];
       for (const c of libMissing){
-        try { mergeChunkPhotos(await fetchJson('chunk-' + c + '.json'), savedNames); }
+        try { mergeChunkPhotos(await fetchJson('/photos/chunk-' + c + '.json'), savedNames); }
         catch(e){ still.push(c); }
         render();
       }
@@ -638,7 +638,7 @@ async function mergeManifest(){
   const savedNames = JSON.parse(localStorage.getItem('driveNames') || '{}');
   let index;
   try {
-    index = await fetchJson('library.json');
+    index = await fetchJson('/photos/library.json');
   } catch(e){
     console.warn('library index', e);
     $('driveInfo').innerHTML = '📁 Drive library could not load (slow connection?). <a href="#" id="mfRetry" style="color:var(--violet);font-weight:700;">Tap to retry</a>';
@@ -651,7 +651,7 @@ async function mergeManifest(){
   libMissing = [];
   for (let c = 0; c < index.chunks; c++){
     try {
-      mergeChunkPhotos(await fetchJson('chunk-' + c + '.json'), savedNames);
+      mergeChunkPhotos(await fetchJson('/photos/chunk-' + c + '.json'), savedNames);
     } catch(e){ libMissing.push(c); }
     if (c < index.chunks - 1 && !libMissing.length){
       $('driveInfo').textContent = '📁 Loading the Drive photo library… ' + state.photos.filter(p => p.driveId).length + ' of ' + index.photos + ' photos';
