@@ -133,7 +133,7 @@ let state = { photos: [], faces: [], people: [] };
 let activePersonId = null;
 let lastMatch = null;
 let selected = new Set();
-let renderLimit = 120;
+let renderLimit = 48;
 let driveMeta = null;
 
 const $ = id => document.getElementById(id);
@@ -318,7 +318,7 @@ function render(){
           const sx = (ph.w / bw * 100).toFixed(1), sy = (ph.h / bh * 100).toFixed(1);
           const px = ph.w === bw ? 0 : (bx / (ph.w - bw) * 100).toFixed(1);
           const py = ph.h === bh ? 0 : (by / (ph.h - bh) * 100).toFixed(1);
-          thumbHtml = '<div class="facecrop" style="background-image:url(\'https://drive.google.com/thumbnail?id=' + ph.driveId + '&sz=w400\');background-size:' + sx + '% ' + sy + '%;background-position:' + px + '% ' + py + '%;"></div>';
+          thumbHtml = '<div class="facecrop" style="background-image:url(\'https://drive.google.com/thumbnail?id=' + ph.driveId + '&sz=w160\');background-size:' + sx + '% ' + sy + '%;background-position:' + px + '% ' + py + '%;"></div>';
         } else {
           thumbHtml = '<div class="facecrop"></div>';
         }
@@ -368,7 +368,7 @@ function render(){
   const shown = photos.slice(0, renderLimit);
   for (const ph of shown){
     const d = document.createElement('div'); d.className = 'ph' + (selected.has(ph.id) ? ' selected' : '');
-    const img = document.createElement('img'); img.src = photoUrl(ph, 500); img.alt = ph.name; img.loading = 'lazy';
+    const img = document.createElement('img'); img.src = photoUrl(ph, 300); img.alt = ph.name; img.loading = 'lazy'; img.decoding = 'async';
     img.onclick = () => openViewer(ph);
     d.appendChild(img);
     const cb = document.createElement('button'); cb.className = 'cb'; cb.textContent = selected.has(ph.id) ? '✓' : '';
@@ -506,7 +506,7 @@ $('clearBtn').onclick = async () => {
   status('Device library cleared. Drive photos are still shown.');
   render();
 };
-$('moreBtn').onclick = () => { renderLimit += 120; render(); };
+$('moreBtn').onclick = () => { renderLimit += 48; render(); };
 $('selAllBtn').onclick = () => {
   const ids = activePersonId ? personPhotoIds(activePersonId) : null;
   state.photos.filter(ph => !ids || ids.has(ph.id)).forEach(ph => selected.add(ph.id));
@@ -699,8 +699,7 @@ function ensureEngine(){
   status('Loading photo library…');
   await mergeManifest();
   render();
-  if (!modelsReady) status(state.photos.length ? 'Photos loaded. Face search is still loading in the background…' : 'Face search is loading in the background…');
-  ensureEngine();
+  status(state.photos.length ? 'Photos ready — browse and download now. Face search loads when you tap Upload or Search (one-time download, best on WiFi).' : 'Upload photos to start.');
 })();
 </script>
 </body>
