@@ -40,6 +40,9 @@
   #viewer .row{ margin-top:14px; display:flex; gap:10px; }
   footer{ text-align:center; color:var(--grey); font-size:12px; padding:8px 16px 26px; }
   .stats{ font-size:13px; color:var(--grey); margin-top:8px; }
+  .facepick{ display:flex; gap:10px; flex-wrap:wrap; }
+  .facepick img{ width:64px; height:64px; border-radius:50%; object-fit:cover; border:3px solid var(--line); cursor:pointer; }
+  .facepick img.sel{ border-color:var(--violet); }
   @media (max-width:560px){ header h1{ font-size:20px; } .grid{ grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); } .ph img{ height:108px; } }
 </style>
 </head>
@@ -55,7 +58,9 @@
     <h2>1. Upload company photos</h2>
     <p class="sub">Select many photos at once. Faces are detected and grouped by person automatically.</p>
     <input type="file" id="photoInput" accept="image/*" multiple style="display:none">
+    <input type="file" id="camInput" accept="image/*" capture="environment" style="display:none">
     <button class="btn" id="uploadBtn">⬆ Upload Photos</button>
+    <button class="btn ghost" id="camBtn" style="margin-left:8px;">📷 Take Photo</button>
     <button class="btn ghost" id="clearBtn" style="margin-left:8px;">Clear all data</button>
     <div id="status">Loading face-matching engine…</div>
     <div id="progressWrap"><div id="progressBar"></div></div>
@@ -64,9 +69,12 @@
 
   <div class="card">
     <h2>2. Find a person with one photo</h2>
-    <p class="sub">Give any one photo of a person — their photos from the whole library will come up.</p>
+    <p class="sub">Give any one photo of a person — or take their photo with the camera right now — and their photos from the whole library will come up.</p>
     <input type="file" id="searchInput" accept="image/*" style="display:none">
+    <input type="file" id="searchCamInput" accept="image/*" capture="environment" style="display:none">
     <button class="btn" id="searchBtn">🔍 Search by Photo</button>
+    <button class="btn ghost" id="searchCamBtn" style="margin-left:8px;">📷 Take Photo</button>
+    <div id="facePick" style="display:none;margin-top:12px;"></div>
     <div id="searchStatus" style="font-size:13.5px;margin-top:10px;color:var(--violet-dark);"></div>
   </div>
 
@@ -101,6 +109,7 @@ let modelsReady = false;
 let db = null;
 let state = { photos: [], faces: [], people: [] };
 let activePersonId = null;
+let lastMatch = null;
 
 const $ = id => document.getElementById(id);
 const status = (t) => { $('status').textContent = t; };
@@ -201,11 +210,17 @@ async function processFiles(files){
         const box = { x: det.detection.box.x / scale, y: det.detection.box.y / scale, width: det.detection.box.width / scale, height: det.detection.box.height / scale };
         let match = bestPerson(descriptor);
         let personId;
-        if (match){ personId = match.person.id; }
+        if (match){
+          personId = match.person.id;
+          const mp = match.person, n = mp.count || 1;
+          mp.ref = mp.ref.map((v, i) => (v * n + descriptor[i]) / (n + 1));
+          mp.count = n + 1;
+          await dbPut('people', mp);
+        }
         else {
           personId = 'person' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
           const thumb = await makeThumb(file, box);
-          const person = { id: personId, name: 'Person ' + (state.people.length + 1), ref: descriptor, thumb };
+          const person = { id: personId, name: 'Person ' + (state.people.length + 1), ref: descriptor, count: 1, thumb };
           await dbPut('people', person); state.people.push(person);
         }
         const face = { id: 'f' + Date.now() + '_' + Math.random().toString(36).slice(2, 8), photoId, personId, descriptor, box };
@@ -244,14 +259,14 @@ function render(){
     all.className = 'person' + (activePersonId === null ? ' active' : '');
     all.innerHTML = '<img alt="" style="border-color:#C4B5FD;background:#EDE9FE"><div class="nm">Everyone</div><div class="ct">' + state.photos.length + ' photos</div>';
     all.querySelector('img').style.visibility = 'hidden';
-    all.onclick = () => { activePersonId = null; render(); };
+    all.onclick = () => { activePersonId = null; lastMatch = null; render(); };
     pw.appendChild(all);
     for (const p of state.people){
       const el = document.createElement('div');
       el.className = 'person' + (activePersonId === p.id ? ' active' : '');
       const count = personPhotoIds(p.id).size;
       el.innerHTML = '<img src="' + blobUrl(p.thumb) + '" alt=""><div class="nm">' + escapeHtml(p.name) + '</div><div class="ct">' + count + ' photo(s)</div><div class="rn">rename</div>';
-      el.onclick = () => { activePersonId = (activePersonId === p.id ? null : p.id); render(); };
+      el.onclick = () => { activePersonId = (activePersonId === p.id ? null : p.id); lastMatch = null; render(); };
       el.querySelector('.rn').onclick = async (ev) => {
         ev.stopPropagation();
         const nm = prompt('Name for this person:', p.name);
@@ -262,9 +277,21 @@ function render(){
   }
   const gw = $('gallery');
   const ids = activePersonId ? personPhotoIds(activePersonId) : null;
-  const photos = state.photos.filter(ph => !ids || ids.has(ph.id));
+  let photos = state.photos.filter(ph => !ids || ids.has(ph.id));
   const person = state.people.find(p => p.id === activePersonId);
-  $('galleryTitle').textContent = person ? ('Photos of ' + person.name) : 'All Photos';
+  let galleryTitle = person ? ('Photos of ' + person.name) : 'All Photos';
+  if (person && lastMatch && lastMatch.personId === person.id){
+    const score = {};
+    for (const f of state.faces){
+      if (f.personId === person.id){
+        const d = dist(lastMatch.descriptor, f.descriptor);
+        if (score[f.photoId] === undefined || d < score[f.photoId]) score[f.photoId] = d;
+      }
+    }
+    photos = photos.slice().sort((a, b) => (score[a.id] ?? 9) - (score[b.id] ?? 9));
+    galleryTitle += ' — closest matches first';
+  }
+  $('galleryTitle').textContent = galleryTitle;
   if (!photos.length){ gw.innerHTML = '<div class="empty">No photos here yet.</div>'; return; }
   gw.innerHTML = '';
   for (const ph of photos){
@@ -296,36 +323,88 @@ $('viewerClose').onclick = () => { $('viewer').style.display = 'none'; };
 $('viewer').addEventListener('click', e => { if (e.target.id === 'viewer') $('viewer').style.display = 'none'; });
 
 /* ---------- Search by photo ---------- */
+function personScore(descriptor, p){
+  let m = dist(descriptor, p.ref);
+  for (const f of state.faces){
+    if (f.personId === p.id){
+      const d = dist(descriptor, f.descriptor);
+      if (d < m) m = d;
+    }
+  }
+  return m;
+}
+function runSearch(descriptor){
+  const ss = $('searchStatus');
+  if (!state.people.length){ ss.textContent = 'Library is empty — upload company photos first (step 1).'; return; }
+  let best = null, bestD = Infinity, secondD = Infinity;
+  for (const p of state.people){
+    const d = personScore(descriptor, p);
+    if (d < bestD){ secondD = bestD; bestD = d; best = p; }
+    else if (d < secondD){ secondD = d; }
+  }
+  if (best && bestD < 0.58){
+    activePersonId = best.id;
+    lastMatch = { personId: best.id, descriptor };
+    const label = bestD < 0.45 ? 'Strong match' : 'Match';
+    let msg = '✅ ' + label + ': ' + best.name + ' — showing their photos below, closest matches first.';
+    if (secondD - bestD < 0.05 && state.people.length > 1) msg += ' If this is the wrong person, tap the right person in People above.';
+    ss.textContent = msg;
+    render();
+    document.getElementById('galleryTitle').scrollIntoView({ behavior: 'smooth' });
+  } else {
+    lastMatch = null;
+    ss.textContent = 'No match found — this person is not in the uploaded photos yet. Tip: use a clear, close, front-facing photo.';
+  }
+}
 async function searchByPhoto(file){
   if (!modelsReady){ alert('Face engine is still loading — wait a few seconds and try again.'); return; }
   const ss = $('searchStatus');
   ss.textContent = 'Reading the photo…';
+  const pick = $('facePick');
+  pick.style.display = 'none'; pick.innerHTML = '';
   try {
     const bmp = await createImageBitmap(file);
-    const { cvs } = toCanvas(bmp);
+    const { cvs, scale } = toCanvas(bmp);
     const dets = await faceapi.detectAllFaces(cvs, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
       .withFaceLandmarks(true).withFaceDescriptors();
     if (!dets.length){ ss.textContent = 'No clear face found in that photo — try a clearer, front-facing photo.'; return; }
-    const det = dets.sort((a, b) => (b.detection.box.width * b.detection.box.height) - (a.detection.box.width * a.detection.box.height))[0];
-    const descriptor = Array.from(det.descriptor);
-    let best = null, bestD = Infinity;
-    for (const p of state.people){ const d = dist(descriptor, p.ref); if (d < bestD){ bestD = d; best = p; } }
-    if (best && bestD < 0.6){
-      activePersonId = best.id;
-      ss.textContent = 'Matched: ' + best.name + ' — showing all their photos below.';
-      render();
-      document.getElementById('galleryTitle').scrollIntoView({ behavior: 'smooth' });
-    } else {
-      ss.textContent = 'No match found — this person is not in the uploaded photos yet.';
+    const faces = dets.map(det => {
+      const box = { x: det.detection.box.x / scale, y: det.detection.box.y / scale, width: det.detection.box.width / scale, height: det.detection.box.height / scale };
+      return { descriptor: Array.from(det.descriptor), box, area: box.width * box.height };
+    }).sort((a, b) => b.area - a.area);
+    if (faces.length > 1){
+      pick.style.display = 'block';
+      const head = document.createElement('div');
+      head.style.cssText = 'font-size:13px;color:var(--grey);margin-bottom:6px;';
+      head.textContent = faces.length + ' faces found in this photo — tap the person you want:';
+      const row = document.createElement('div'); row.className = 'facepick';
+      for (let i = 0; i < faces.length; i++){
+        const thumb = await makeThumb(file, faces[i].box);
+        const img = document.createElement('img');
+        img.src = blobUrl(thumb); img.alt = 'Face ' + (i + 1);
+        if (i === 0) img.className = 'sel';
+        img.onclick = () => {
+          row.querySelectorAll('img').forEach(x => x.classList.remove('sel'));
+          img.classList.add('sel');
+          runSearch(faces[i].descriptor);
+        };
+        row.appendChild(img);
+      }
+      pick.appendChild(head); pick.appendChild(row);
     }
+    runSearch(faces[0].descriptor);
   } catch(e){ ss.textContent = 'Could not read that photo. Try another one.'; }
 }
 
 /* ---------- Wire up ---------- */
 $('uploadBtn').onclick = () => $('photoInput').click();
 $('photoInput').onchange = e => { processFiles(e.target.files); e.target.value = ''; };
+$('camBtn').onclick = () => $('camInput').click();
+$('camInput').onchange = e => { if (e.target.files.length) processFiles(e.target.files); e.target.value = ''; };
 $('searchBtn').onclick = () => $('searchInput').click();
 $('searchInput').onchange = e => { if (e.target.files[0]) searchByPhoto(e.target.files[0]); e.target.value = ''; };
+$('searchCamBtn').onclick = () => $('searchCamInput').click();
+$('searchCamInput').onchange = e => { if (e.target.files[0]) searchByPhoto(e.target.files[0]); e.target.value = ''; };
 $('clearBtn').onclick = async () => {
   if (!confirm('Remove ALL photos and people from this library (on this device)?')) return;
   await dbClearAll();
@@ -344,13 +423,19 @@ $('clearBtn').onclick = async () => {
   } catch(e){ console.warn('DB load failed', e); }
   try {
     status('Loading face-matching engine…');
+    try {
+      const testCvs = document.createElement('canvas');
+      const hasWebgl = !!(window.WebGLRenderingContext && (testCvs.getContext('webgl2') || testCvs.getContext('webgl') || testCvs.getContext('experimental-webgl')));
+      if (faceapi.tf && faceapi.tf.setBackend && !hasWebgl) await faceapi.tf.setBackend('cpu');
+      if (faceapi.tf && faceapi.tf.ready) await faceapi.tf.ready();
+    } catch(e){ console.warn('Backend setup', e); }
     await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
     await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
     await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
     modelsReady = true;
     status(state.photos.length ? 'Ready. Your saved library is loaded — upload more photos or search by person.' : 'Ready — upload photos to start.');
   } catch(e){
-    status('Face engine could not load (needs internet for the first load). Check connection and refresh.');
+    status('Face engine could not load. Check connection and refresh.');
   }
 })();
 </script>
