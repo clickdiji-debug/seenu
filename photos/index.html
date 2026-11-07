@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Company Photos — Find Photos by Person | srinivas.si</title>
+<meta name="description" content="Upload company photos and find all photos of any person with face matching.">
+<style>
+  :root{ --violet:#6D28D9; --violet-dark:#4C1D95; --ink:#1F2430; --grey:#6B7280; --line:#E7E4F5; --bg:#F7F5FF; --card:#fff; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:'Segoe UI',Arial,Helvetica,sans-serif; background:var(--bg); color:var(--ink); }
+  header{ background:linear-gradient(90deg,#4C1D95,#6D28D9 55%,#DB2777); color:#fff; padding:22px 18px 18px; }
+  header h1{ margin:0; font-size:24px; }
+  header p{ margin:5px 0 0; font-size:13.5px; opacity:.92; }
+  .wrap{ max-width:1060px; margin:0 auto; padding:16px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px; box-shadow:0 2px 10px rgba(76,29,149,.06); }
+  .card h2{ margin:0 0 6px; font-size:16.5px; color:var(--violet-dark); }
+  .card p.sub{ margin:0 0 12px; font-size:13px; color:var(--grey); }
+  .btn{ display:inline-block; background:var(--violet); color:#fff; border:0; border-radius:9px; padding:11px 18px; font-size:14px; font-weight:600; cursor:pointer; }
+  .btn:active{ transform:scale(.98); }
+  .btn.ghost{ background:#EDE9FE; color:var(--violet-dark); }
+  .btn.small{ padding:7px 12px; font-size:12.5px; border-radius:7px; }
+  #status{ font-size:13.5px; margin-top:10px; min-height:20px; color:var(--violet-dark); }
+  #progressWrap{ display:none; background:#EDE9FE; border-radius:99px; height:9px; margin-top:8px; overflow:hidden; }
+  #progressBar{ height:100%; width:0%; background:var(--violet); transition:width .25s; }
+  .people{ display:flex; flex-wrap:wrap; gap:12px; }
+  .person{ width:104px; text-align:center; cursor:pointer; border:2px solid var(--line); border-radius:12px; padding:9px 6px 8px; background:#fff; }
+  .person.active{ border-color:var(--violet); background:#F5F3FF; }
+  .person img{ width:64px; height:64px; border-radius:50%; object-fit:cover; display:block; margin:0 auto 6px; border:2px solid var(--violet); background:#EDE9FE; }
+  .person .nm{ font-size:12.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .person .ct{ font-size:11.5px; color:var(--grey); }
+  .person .rn{ font-size:11px; color:var(--violet); text-decoration:underline; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+  .ph{ position:relative; border-radius:10px; overflow:hidden; border:1px solid var(--line); background:#eee; }
+  .ph img{ width:100%; height:150px; object-fit:cover; display:block; cursor:pointer; }
+  .ph .del{ position:absolute; top:5px; right:5px; background:rgba(0,0,0,.65); color:#fff; border:0; width:24px; height:24px; border-radius:50%; cursor:pointer; font-size:13px; line-height:1; }
+  .empty{ color:var(--grey); font-size:13.5px; padding:8px 0; }
+  #viewer{ display:none; position:fixed; inset:0; background:rgba(10,6,24,.92); z-index:50; align-items:center; justify-content:center; flex-direction:column; padding:16px; }
+  #viewer img{ max-width:94vw; max-height:78vh; border-radius:10px; }
+  #viewer .row{ margin-top:14px; display:flex; gap:10px; }
+  footer{ text-align:center; color:var(--grey); font-size:12px; padding:8px 16px 26px; }
+  .stats{ font-size:13px; color:var(--grey); margin-top:8px; }
+  @media (max-width:560px){ header h1{ font-size:20px; } .grid{ grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); } .ph img{ height:108px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>📸 Company Photos — Find by Person</h1>
+  <p>Upload company photos once. Then tap a person — or search with one photo — and all photos of that person come up.</p>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2>1. Upload company photos</h2>
+    <p class="sub">Select many photos at once. Faces are detected and grouped by person automatically.</p>
+    <input type="file" id="photoInput" accept="image/*" multiple style="display:none">
+    <button class="btn" id="uploadBtn">⬆ Upload Photos</button>
+    <button class="btn ghost" id="clearBtn" style="margin-left:8px;">Clear all data</button>
+    <div id="status">Loading face-matching engine…</div>
+    <div id="progressWrap"><div id="progressBar"></div></div>
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. Find a person with one photo</h2>
+    <p class="sub">Give any one photo of a person — their photos from the whole library will come up.</p>
+    <input type="file" id="searchInput" accept="image/*" style="display:none">
+    <button class="btn" id="searchBtn">🔍 Search by Photo</button>
+    <div id="searchStatus" style="font-size:13.5px;margin-top:10px;color:var(--violet-dark);"></div>
+  </div>
+
+  <div class="card">
+    <h2>People</h2>
+    <p class="sub">Tap a person to see only their photos. Tap the name to rename (example: their real name).</p>
+    <div class="people" id="people"><div class="empty">No people yet — upload photos first.</div></div>
+  </div>
+
+  <div class="card">
+    <h2 id="galleryTitle">All Photos</h2>
+    <div class="grid" id="gallery"><div class="empty">No photos yet.</div></div>
+  </div>
+
+</div>
+
+<div id="viewer">
+  <img id="viewerImg" alt="Full photo">
+  <div class="row">
+    <a id="viewerDl" class="btn" download>⬇ Download</a>
+    <button class="btn ghost" id="viewerClose">Close</button>
+  </div>
+</div>
+
+<footer>Photos and face data are stored in this browser on this device (not sent to any server). Use the same browser to see your library again.</footer>
+
+<script src="lib/face-api.js"></script>
+<script>
+const MODEL_URL = 'model';
+const MATCH_THRESHOLD = 0.55;
+let modelsReady = false;
+let db = null;
+let state = { photos: [], faces: [], people: [] };
+let activePersonId = null;
+
+const $ = id => document.getElementById(id);
+const status = (t) => { $('status').textContent = t; };
+
+/* ---------- IndexedDB ---------- */
+function openDb(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('company-photos-db', 1);
+    r.onupgradeneeded = () => {
+      const d = r.result;
+      d.createObjectStore('photos', { keyPath: 'id' });
+      d.createObjectStore('faces', { keyPath: 'id' });
+      d.createObjectStore('people', { keyPath: 'id' });
+    };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function dbAll(store){
+  return new Promise((res, rej) => {
+    const q = db.transaction(store).objectStore(store).getAll();
+    q.onsuccess = () => res(q.result || []);
+    q.onerror = () => rej(q.error);
+  });
+}
+function dbPut(store, val){
+  return new Promise((res, rej) => {
+    const q = db.transaction(store, 'readwrite').objectStore(store).put(val);
+    q.onsuccess = () => res();
+    q.onerror = () => rej(q.error);
+  });
+}
+function dbDel(store, key){
+  return new Promise((res, rej) => {
+    const q = db.transaction(store, 'readwrite').objectStore(store).delete(key);
+    q.onsuccess = () => res();
+    q.onerror = () => rej(q.error);
+  });
+}
+function dbClearAll(){
+  return Promise.all(['photos','faces','people'].map(s => new Promise((res, rej) => {
+    const q = db.transaction(s, 'readwrite').objectStore(s).clear();
+    q.onsuccess = () => res(); q.onerror = () => rej(q.error);
+  })));
+}
+
+/* ---------- Face matching ---------- */
+function dist(a, b){
+  let s = 0;
+  for (let i = 0; i < a.length; i++){ const d = a[i] - b[i]; s += d * d; }
+  return Math.sqrt(s);
+}
+function bestPerson(descriptor){
+  let best = null, bestD = Infinity;
+  for (const p of state.people){
+    const d = dist(descriptor, p.ref);
+    if (d < bestD){ bestD = d; best = p; }
+  }
+  return (best && bestD < MATCH_THRESHOLD) ? { person: best, d: bestD } : null;
+}
+function toCanvas(bmp){
+  const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const cvs = document.createElement('canvas');
+  cvs.width = Math.round(bmp.width * scale); cvs.height = Math.round(bmp.height * scale);
+  cvs.getContext('2d').drawImage(bmp, 0, 0, cvs.width, cvs.height);
+  return { cvs, scale };
+}
+async function makeThumb(blob, box){
+  const bmp = await createImageBitmap(blob);
+  const pad = box.width * 0.45;
+  const sx = Math.max(0, box.x - pad), sy = Math.max(0, box.y - pad);
+  const sw = Math.min(bmp.width - sx, box.width + pad * 2), sh = Math.min(bmp.height - sy, box.height + pad * 2);
+  const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+  c.getContext('2d').drawImage(bmp, sx, sy, sw, sh, 0, 0, 128, 128);
+  return new Promise(res => c.toBlob(res, 'image/jpeg', 0.85));
+}
+
+/* ---------- Processing uploads ---------- */
+async function processFiles(files){
+  if (!modelsReady){ alert('Face engine is still loading — wait a few seconds and try again.'); return; }
+  const list = [...files].filter(f => f.type.startsWith('image/'));
+  if (!list.length) return;
+  $('progressWrap').style.display = 'block';
+  let done = 0, faceCount = 0, noFace = 0;
+  for (const file of list){
+    status('Reading photo ' + (done + 1) + ' of ' + list.length + ' — ' + file.name);
+    try {
+      const bmp = await createImageBitmap(file);
+      const { cvs, scale } = toCanvas(bmp);
+      const dets = await faceapi.detectAllFaces(cvs, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+        .withFaceLandmarks(true).withFaceDescriptors();
+      const photoId = 'p' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const photo = { id: photoId, blob: file, name: file.name, addedAt: Date.now() };
+      await dbPut('photos', photo); state.photos.push(photo);
+      if (!dets.length) noFace++;
+      for (const det of dets){
+        const descriptor = Array.from(det.descriptor);
+        const box = { x: det.detection.box.x / scale, y: det.detection.box.y / scale, width: det.detection.box.width / scale, height: det.detection.box.height / scale };
+        let match = bestPerson(descriptor);
+        let personId;
+        if (match){ personId = match.person.id; }
+        else {
+          personId = 'person' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+          const thumb = await makeThumb(file, box);
+          const person = { id: personId, name: 'Person ' + (state.people.length + 1), ref: descriptor, thumb };
+          await dbPut('people', person); state.people.push(person);
+        }
+        const face = { id: 'f' + Date.now() + '_' + Math.random().toString(36).slice(2, 8), photoId, personId, descriptor, box };
+        await dbPut('faces', face); state.faces.push(face);
+        faceCount++;
+      }
+    } catch(e){ console.warn('Photo failed', file.name, e); }
+    done++;
+    $('progressBar').style.width = Math.round(done / list.length * 100) + '%';
+  }
+  $('progressWrap').style.display = 'none';
+  $('progressBar').style.width = '0%';
+  status('Done. ' + list.length + ' photo(s) added, ' + faceCount + ' face(s) found' + (noFace ? ', ' + noFace + ' photo(s) had no clear face' : '') + '.');
+  render();
+}
+
+/* ---------- Rendering ---------- */
+const urlCache = new Map();
+function blobUrl(blob){
+  if (!blob) return '';
+  if (!urlCache.has(blob)) urlCache.set(blob, URL.createObjectURL(blob));
+  return urlCache.get(blob);
+}
+function personPhotoIds(personId){
+  const set = new Set();
+  state.faces.filter(f => f.personId === personId).forEach(f => set.add(f.photoId));
+  return set;
+}
+function render(){
+  $('stats').textContent = state.photos.length + ' photo(s) • ' + state.people.length + ' person(s) • ' + state.faces.length + ' face(s)';
+  const pw = $('people');
+  if (!state.people.length){ pw.innerHTML = '<div class="empty">No people yet — upload photos first.</div>'; }
+  else {
+    pw.innerHTML = '';
+    const all = document.createElement('div');
+    all.className = 'person' + (activePersonId === null ? ' active' : '');
+    all.innerHTML = '<img alt="" style="border-color:#C4B5FD;background:#EDE9FE"><div class="nm">Everyone</div><div class="ct">' + state.photos.length + ' photos</div>';
+    all.querySelector('img').style.visibility = 'hidden';
+    all.onclick = () => { activePersonId = null; render(); };
+    pw.appendChild(all);
+    for (const p of state.people){
+      const el = document.createElement('div');
+      el.className = 'person' + (activePersonId === p.id ? ' active' : '');
+      const count = personPhotoIds(p.id).size;
+      el.innerHTML = '<img src="' + blobUrl(p.thumb) + '" alt=""><div class="nm">' + escapeHtml(p.name) + '</div><div class="ct">' + count + ' photo(s)</div><div class="rn">rename</div>';
+      el.onclick = () => { activePersonId = (activePersonId === p.id ? null : p.id); render(); };
+      el.querySelector('.rn').onclick = async (ev) => {
+        ev.stopPropagation();
+        const nm = prompt('Name for this person:', p.name);
+        if (nm && nm.trim()){ p.name = nm.trim(); await dbPut('people', p); render(); }
+      };
+      pw.appendChild(el);
+    }
+  }
+  const gw = $('gallery');
+  const ids = activePersonId ? personPhotoIds(activePersonId) : null;
+  const photos = state.photos.filter(ph => !ids || ids.has(ph.id));
+  const person = state.people.find(p => p.id === activePersonId);
+  $('galleryTitle').textContent = person ? ('Photos of ' + person.name) : 'All Photos';
+  if (!photos.length){ gw.innerHTML = '<div class="empty">No photos here yet.</div>'; return; }
+  gw.innerHTML = '';
+  for (const ph of photos){
+    const d = document.createElement('div'); d.className = 'ph';
+    const img = document.createElement('img'); img.src = blobUrl(ph.blob); img.alt = ph.name; img.loading = 'lazy';
+    img.onclick = () => openViewer(ph);
+    const del = document.createElement('button'); del.className = 'del'; del.textContent = '×'; del.title = 'Remove this photo';
+    del.onclick = async (ev) => {
+      ev.stopPropagation();
+      if (!confirm('Remove this photo from the library?')) return;
+      await dbDel('photos', ph.id);
+      for (const f of state.faces.filter(f => f.photoId === ph.id)) await dbDel('faces', f.id);
+      state.photos = state.photos.filter(x => x.id !== ph.id);
+      state.faces = state.faces.filter(x => x.photoId !== ph.id);
+      render();
+    };
+    d.appendChild(img); d.appendChild(del); gw.appendChild(d);
+  }
+}
+function escapeHtml(s){ return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ---------- Viewer ---------- */
+function openViewer(ph){
+  $('viewerImg').src = blobUrl(ph.blob);
+  const dl = $('viewerDl'); dl.href = blobUrl(ph.blob); dl.download = ph.name || 'photo.jpg';
+  $('viewer').style.display = 'flex';
+}
+$('viewerClose').onclick = () => { $('viewer').style.display = 'none'; };
+$('viewer').addEventListener('click', e => { if (e.target.id === 'viewer') $('viewer').style.display = 'none'; });
+
+/* ---------- Search by photo ---------- */
+async function searchByPhoto(file){
+  if (!modelsReady){ alert('Face engine is still loading — wait a few seconds and try again.'); return; }
+  const ss = $('searchStatus');
+  ss.textContent = 'Reading the photo…';
+  try {
+    const bmp = await createImageBitmap(file);
+    const { cvs } = toCanvas(bmp);
+    const dets = await faceapi.detectAllFaces(cvs, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
+      .withFaceLandmarks(true).withFaceDescriptors();
+    if (!dets.length){ ss.textContent = 'No clear face found in that photo — try a clearer, front-facing photo.'; return; }
+    const det = dets.sort((a, b) => (b.detection.box.width * b.detection.box.height) - (a.detection.box.width * a.detection.box.height))[0];
+    const descriptor = Array.from(det.descriptor);
+    let best = null, bestD = Infinity;
+    for (const p of state.people){ const d = dist(descriptor, p.ref); if (d < bestD){ bestD = d; best = p; } }
+    if (best && bestD < 0.6){
+      activePersonId = best.id;
+      ss.textContent = 'Matched: ' + best.name + ' — showing all their photos below.';
+      render();
+      document.getElementById('galleryTitle').scrollIntoView({ behavior: 'smooth' });
+    } else {
+      ss.textContent = 'No match found — this person is not in the uploaded photos yet.';
+    }
+  } catch(e){ ss.textContent = 'Could not read that photo. Try another one.'; }
+}
+
+/* ---------- Wire up ---------- */
+$('uploadBtn').onclick = () => $('photoInput').click();
+$('photoInput').onchange = e => { processFiles(e.target.files); e.target.value = ''; };
+$('searchBtn').onclick = () => $('searchInput').click();
+$('searchInput').onchange = e => { if (e.target.files[0]) searchByPhoto(e.target.files[0]); e.target.value = ''; };
+$('clearBtn').onclick = async () => {
+  if (!confirm('Remove ALL photos and people from this library (on this device)?')) return;
+  await dbClearAll();
+  state = { photos: [], faces: [], people: [] }; activePersonId = null;
+  status('Library cleared.');
+  render();
+};
+
+(async function init(){
+  try {
+    db = await openDb();
+    state.photos = await dbAll('photos');
+    state.faces = await dbAll('faces');
+    state.people = await dbAll('people');
+    render();
+  } catch(e){ console.warn('DB load failed', e); }
+  try {
+    status('Loading face-matching engine…');
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+    modelsReady = true;
+    status(state.photos.length ? 'Ready. Your saved library is loaded — upload more photos or search by person.' : 'Ready — upload photos to start.');
+  } catch(e){
+    status('Face engine could not load (needs internet for the first load). Check connection and refresh.');
+  }
+})();
+</script>
+</body>
+</html>
