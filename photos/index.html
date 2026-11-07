@@ -120,7 +120,7 @@
   </div>
 </div>
 
-<footer>Photos and face data are stored in this browser on this device (not sent to any server). Use the same browser to see your library again.</footer>
+<footer>Drive photos come from the shared "Company Photos" folder. Photos you upload here stay in this browser on this device.</footer>
 
 <script src="lib/face-api.js"></script>
 <script src="lib/jszip.min.js"></script>
@@ -214,7 +214,11 @@ async function makeThumb(blob, box){
 
 /* ---------- Processing uploads ---------- */
 async function processFiles(files){
-  if (!modelsReady){ alert('Face engine is still loading — wait a few seconds and try again.'); return; }
+  if (!modelsReady){
+    status('Preparing the face engine… first load can take a little while on slow connections.');
+    const okLoad = await ensureEngine();
+    if (!okLoad){ alert('Face engine could not load — check connection and try again.'); return; }
+  }
   const list = [...files].filter(f => f.type.startsWith('image/'));
   if (!list.length) return;
   $('progressWrap').style.display = 'block';
@@ -442,7 +446,11 @@ function runSearch(descriptor){
   }
 }
 async function searchByPhoto(file){
-  if (!modelsReady){ alert('Face engine is still loading — wait a few seconds and try again.'); return; }
+  if (!modelsReady){
+    $('searchStatus').textContent = 'Preparing the face engine… first load can take a little while on slow connections.';
+    const okLoad = await ensureEngine();
+    if (!okLoad){ $('searchStatus').textContent = 'Face engine could not load — check connection and try again.'; return; }
+  }
   const ss = $('searchStatus');
   ss.textContent = 'Reading the photo…';
   const pick = $('facePick');
@@ -555,11 +563,22 @@ $('dlSelBtn').onclick = async () => {
 
 /* ---------- Drive folder (manifest) ---------- */
 let uidC = 0;
+async function fetchManifest(){
+  let lastErr = null;
+  for (let i = 0; i < 3; i++){
+    try {
+      const r = await fetch('manifest.json', { cache: 'no-cache' });
+      if (r.ok) return await r.json();
+      lastErr = new Error('HTTP ' + r.status);
+    } catch(e){ lastErr = e; }
+    await new Promise(res => setTimeout(res, 1500));
+  }
+  throw lastErr || new Error('fetch failed');
+}
 async function mergeManifest(){
+  $('driveInfo').textContent = '📁 Loading the Drive photo library…';
   try {
-    const r = await fetch('manifest.json', { cache: 'no-cache' });
-    if (!r.ok) return;
-    const data = await r.json();
+    const data = await fetchManifest();
     driveMeta = data;
     const savedNames = JSON.parse(localStorage.getItem('driveNames') || '{}');
     for (const mp of data.photos){
@@ -587,7 +606,39 @@ async function mergeManifest(){
     }
     const when = data.generatedAt ? new Date(data.generatedAt) : null;
     $('driveInfo').textContent = '📁 ' + data.photos.length + ' photos from the Drive folder "' + (data.folderName || 'Company Photos') + '"' + (when ? ' • updated ' + when.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) + ', ' + when.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) : '') + ' — new photos added to that folder appear here after a sync.';
-  } catch(e){ console.warn('manifest', e); }
+  } catch(e){
+    console.warn('manifest', e);
+    $('driveInfo').innerHTML = '📁 Drive library could not load (slow connection?). <a href="#" id="mfRetry" style="color:var(--violet);font-weight:700;">Tap to retry</a>';
+    const rt = $('mfRetry');
+    if (rt) rt.onclick = async (ev) => { ev.preventDefault(); await mergeManifest(); render(); };
+  }
+}
+
+let enginePromise = null;
+function ensureEngine(){
+  if (modelsReady) return Promise.resolve(true);
+  if (enginePromise) return enginePromise;
+  enginePromise = (async () => {
+    try {
+      try {
+        const testCvs = document.createElement('canvas');
+        const hasWebgl = !!(window.WebGLRenderingContext && (testCvs.getContext('webgl2') || testCvs.getContext('webgl') || testCvs.getContext('experimental-webgl')));
+        if (faceapi.tf && faceapi.tf.setBackend && !hasWebgl) await faceapi.tf.setBackend('cpu');
+        if (faceapi.tf && faceapi.tf.ready) await faceapi.tf.ready();
+      } catch(e){ console.warn('Backend setup', e); }
+      await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+      await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
+      await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+      modelsReady = true;
+      status('Ready — photos, people and face search are all set.');
+      return true;
+    } catch(e){
+      enginePromise = null;
+      status('Face engine could not load (slow connection?). Photos and downloads still work — tap Upload or Search to try loading it again.');
+      return false;
+    }
+  })();
+  return enginePromise;
 }
 
 (async function init(){
@@ -596,25 +647,13 @@ async function mergeManifest(){
     state.photos = await dbAll('photos');
     state.faces = await dbAll('faces');
     state.people = await dbAll('people');
-    await mergeManifest();
-    render();
   } catch(e){ console.warn('DB load failed', e); }
-  try {
-    status('Loading face-matching engine…');
-    try {
-      const testCvs = document.createElement('canvas');
-      const hasWebgl = !!(window.WebGLRenderingContext && (testCvs.getContext('webgl2') || testCvs.getContext('webgl') || testCvs.getContext('experimental-webgl')));
-      if (faceapi.tf && faceapi.tf.setBackend && !hasWebgl) await faceapi.tf.setBackend('cpu');
-      if (faceapi.tf && faceapi.tf.ready) await faceapi.tf.ready();
-    } catch(e){ console.warn('Backend setup', e); }
-    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-    await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
-    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-    modelsReady = true;
-    status(state.photos.length ? 'Ready. Your saved library is loaded — upload more photos or search by person.' : 'Ready — upload photos to start.');
-  } catch(e){
-    status('Face engine could not load. Check connection and refresh.');
-  }
+  render();
+  status('Loading photo library…');
+  await mergeManifest();
+  render();
+  if (!modelsReady) status(state.photos.length ? 'Photos loaded. Face search is still loading in the background…' : 'Face search is loading in the background…');
+  ensureEngine();
 })();
 </script>
 </body>
