@@ -584,34 +584,53 @@ function decodeDesc(s){
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) / 127.5 - 1;
   return out;
 }
+let drivePool = [];
 function mergeChunkPhotos(chunk, savedNames){
   for (const mp of chunk.photos){
     if (state.photos.some(x => x.id === 'd' + mp.i)) continue;
     const photo = { id: 'd' + mp.i, name: mp.n, driveId: mp.i, w: mp.w, h: mp.h, addedAt: 0 };
     state.photos.push(photo);
     for (const f of (mp.f || [])){
-      const descriptor = decodeDesc(f.d);
-      const box = { x: f.b[0], y: f.b[1], width: f.b[2], height: f.b[3] };
-      const match = bestPerson(descriptor);
-      let personId;
-      if (match){
-        personId = match.person.id;
-        const p = match.person, n = p.count || 1;
-        p.ref = p.ref.map((v, i) => (v * n + descriptor[i]) / (n + 1));
-        p.count = n + 1;
-      } else {
-        const sig = photo.id + ':' + box.x + ',' + box.y;
-        const person = { id: 'dp' + (++uidC) + '_' + Date.now().toString(36), name: savedNames[sig] || ('Person ' + (state.people.length + 1)), ref: descriptor, count: 1, drive: true, sig, thumbRef: { photoId: photo.id, box } };
-        state.people.push(person);
-        personId = person.id;
-      }
-      state.faces.push({ id: 'df' + (++uidC) + '_' + Date.now().toString(36), photoId: photo.id, personId, descriptor, box });
+      drivePool.push({ photoId: photo.id, descriptor: decodeDesc(f.d), box: { x: f.b[0], y: f.b[1], width: f.b[2], height: f.b[3] } });
+    }
+  }
+}
+function clusterDriveFaces(){
+  const savedNames = JSON.parse(localStorage.getItem('driveNames') || '{}');
+  state.faces = state.faces.filter(f => !(typeof f.id === 'string' && f.id.startsWith('df')));
+  state.people = state.people.filter(p => !p.drive);
+  if (activePersonId && !state.people.some(p => p.id === activePersonId)) activePersonId = null;
+  const pool = drivePool.slice().sort((a, b) => a.photoId < b.photoId ? -1 : a.photoId > b.photoId ? 1 : (a.box.x - b.box.x));
+  const clusters = [];
+  for (const f of pool){
+    let best = null, bestD = 0.5;
+    for (const c of clusters){
+      const d = dist(f.descriptor, c.ref);
+      if (d < bestD){ bestD = d; best = c; }
+    }
+    if (best){
+      const n = best.count;
+      best.ref = best.ref.map((v, i) => (v * n + f.descriptor[i]) / (n + 1));
+      best.count = n + 1;
+      best.faces.push(f);
+    } else {
+      clusters.push({ ref: f.descriptor.slice(), count: 1, faces: [f] });
+    }
+  }
+  for (const c of clusters){
+    const rep = c.faces[0];
+    const sig = rep.photoId + ':' + rep.box.x + ',' + rep.box.y;
+    const person = { id: 'dp' + (++uidC) + '_' + Date.now().toString(36), name: savedNames[sig] || ('Person ' + (state.people.length + 1)), ref: c.ref, count: c.count, drive: true, sig, thumbRef: { photoId: rep.photoId, box: rep.box } };
+    state.people.push(person);
+    for (const f of c.faces){
+      state.faces.push({ id: 'df' + (++uidC) + '_' + Date.now().toString(36), photoId: f.photoId, personId: person.id, descriptor: f.descriptor, box: f.box });
     }
   }
 }
 function setDriveInfoFinal(){
   const index = libIndex;
   if (!index) return;
+  clusterDriveFaces();
   if (libMissing.length){
     const loaded = state.photos.filter(p => p.driveId).length;
     $('driveInfo').innerHTML = '📁 Loaded ' + loaded + ' of ' + index.photos + ' Drive photos — some parts failed on this connection. <a href="#" id="mfRetry" style="color:var(--violet);font-weight:700;">Tap to load the rest</a>';
@@ -649,6 +668,7 @@ async function mergeManifest(){
   libIndex = index;
   driveMeta = index;
   libMissing = [];
+  drivePool = [];
   for (let c = 0; c < index.chunks; c++){
     try {
       mergeChunkPhotos(await fetchJson('/photos/chunk-' + c + '.json'), savedNames);
