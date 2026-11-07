@@ -44,6 +44,14 @@
   .facepick{ display:flex; gap:10px; flex-wrap:wrap; }
   .facepick img{ width:64px; height:64px; border-radius:50%; object-fit:cover; border:3px solid var(--line); cursor:pointer; }
   .facepick img.sel{ border-color:var(--violet); }
+  .ph .cb{ position:absolute; top:5px; left:5px; width:24px; height:24px; border-radius:50%; border:2px solid #fff; background:rgba(0,0,0,.35); color:#fff; font-size:14px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
+  .ph.selected{ outline:3px solid var(--violet); outline-offset:-3px; }
+  .ph.selected .cb{ background:var(--violet); }
+  .ph .dlb{ position:absolute; bottom:5px; right:5px; background:rgba(0,0,0,.65); color:#fff; border:0; width:26px; height:26px; border-radius:50%; cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center; text-decoration:none; }
+  .ph .src{ position:absolute; bottom:5px; left:5px; background:rgba(76,29,149,.85); color:#fff; font-size:10px; padding:2px 7px; border-radius:99px; }
+  .toolbar{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+  .toolbar .info{ font-size:13px; color:var(--grey); }
+  .facecrop{ width:64px; height:64px; border-radius:50%; margin:0 auto 6px; border:2px solid var(--violet); background-color:#EDE9FE; background-repeat:no-repeat; }
   @media (max-width:560px){ header h1{ font-size:20px; } .grid{ grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); } .ph img{ height:108px; } }
 </style>
 </head>
@@ -91,7 +99,15 @@
 
   <div class="card">
     <h2 id="galleryTitle">All Photos</h2>
+    <p class="sub" id="driveInfo"></p>
+    <div class="toolbar">
+      <button class="btn ghost small" id="selAllBtn">Select all shown</button>
+      <button class="btn ghost small" id="selClearBtn">Clear selection</button>
+      <button class="btn small" id="dlSelBtn">⬇ Download selected (0)</button>
+      <span class="info" id="dlStatus"></span>
+    </div>
     <div class="grid" id="gallery"><div class="empty">No photos yet.</div></div>
+    <div style="text-align:center;margin-top:12px;"><button class="btn ghost" id="moreBtn" style="display:none;">Show more photos</button></div>
   </div>
 
 </div>
@@ -107,6 +123,7 @@
 <footer>Photos and face data are stored in this browser on this device (not sent to any server). Use the same browser to see your library again.</footer>
 
 <script src="lib/face-api.js"></script>
+<script src="lib/jszip.min.js"></script>
 <script>
 const MODEL_URL = 'model';
 const MATCH_THRESHOLD = 0.55;
@@ -115,6 +132,9 @@ let db = null;
 let state = { photos: [], faces: [], people: [] };
 let activePersonId = null;
 let lastMatch = null;
+let selected = new Set();
+let renderLimit = 120;
+let driveMeta = null;
 
 const $ = id => document.getElementById(id);
 const status = (t) => { $('status').textContent = t; };
@@ -249,6 +269,18 @@ function blobUrl(blob){
   if (!urlCache.has(blob)) urlCache.set(blob, URL.createObjectURL(blob));
   return urlCache.get(blob);
 }
+function photoUrl(ph, sz){
+  if (ph.blob) return blobUrl(ph.blob);
+  return 'https://drive.google.com/thumbnail?id=' + ph.driveId + '&sz=w' + (sz || 600);
+}
+function downloadUrl(ph){
+  if (ph.blob) return blobUrl(ph.blob);
+  return 'https://drive.google.com/uc?export=download&id=' + ph.driveId;
+}
+function updateDlBtn(){
+  const b = $('dlSelBtn');
+  if (b) b.textContent = '⬇ Download selected (' + selected.size + ')';
+}
 function personPhotoIds(personId){
   const set = new Set();
   state.faces.filter(f => f.personId === personId).forEach(f => set.add(f.photoId));
@@ -263,18 +295,48 @@ function render(){
     const all = document.createElement('div');
     all.className = 'person' + (activePersonId === null ? ' active' : '');
     all.innerHTML = '<div style="width:64px;height:64px;border-radius:50%;background:#EDE9FE;border:2px solid #C4B5FD;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:28px;">👥</div><div class="nm">Everyone</div><div class="ct">' + state.photos.length + ' photos</div>';
-    all.onclick = () => { activePersonId = null; lastMatch = null; render(); };
+    all.onclick = () => { activePersonId = null; lastMatch = null; renderLimit = 120; render(); };
     pw.appendChild(all);
     for (const p of state.people){
       const el = document.createElement('div');
       el.className = 'person' + (activePersonId === p.id ? ' active' : '');
       const count = personPhotoIds(p.id).size;
-      el.innerHTML = '<img src="' + blobUrl(p.thumb) + '" alt=""><div class="nm">' + escapeHtml(p.name) + '</div><div class="ct">' + count + ' photo(s)</div><div class="rn">rename</div>';
-      el.onclick = () => { activePersonId = (activePersonId === p.id ? null : p.id); lastMatch = null; render(); };
+      let thumbHtml;
+      if (p.thumb){
+        thumbHtml = '<img src="' + blobUrl(p.thumb) + '" alt="">';
+      } else if (p.thumbRef){
+        const t = p.thumbRef;
+        const ph = state.photos.find(x => x.id === t.photoId);
+        if (ph && ph.w && ph.h){
+          const padX = t.box.width * 0.35, padY = t.box.height * 0.35;
+          const bx = Math.max(0, t.box.x - padX), by = Math.max(0, t.box.y - padY);
+          const bw = Math.min(ph.w - bx, t.box.width + padX * 2), bh = Math.min(ph.h - by, t.box.height + padY * 2);
+          const sx = (ph.w / bw * 100).toFixed(1), sy = (ph.h / bh * 100).toFixed(1);
+          const px = ph.w === bw ? 0 : (bx / (ph.w - bw) * 100).toFixed(1);
+          const py = ph.h === bh ? 0 : (by / (ph.h - bh) * 100).toFixed(1);
+          thumbHtml = '<div class="facecrop" style="background-image:url(\'https://drive.google.com/thumbnail?id=' + ph.driveId + '&sz=w400\');background-size:' + sx + '% ' + sy + '%;background-position:' + px + '% ' + py + '%;"></div>';
+        } else {
+          thumbHtml = '<div class="facecrop"></div>';
+        }
+      } else {
+        thumbHtml = '<div class="facecrop"></div>';
+      }
+      el.innerHTML = thumbHtml + '<div class="nm">' + escapeHtml(p.name) + '</div><div class="ct">' + count + ' photo(s)</div><div class="rn">rename</div>';
+      el.onclick = () => { activePersonId = (activePersonId === p.id ? null : p.id); lastMatch = null; renderLimit = 120; render(); };
       el.querySelector('.rn').onclick = async (ev) => {
         ev.stopPropagation();
         const nm = prompt('Name for this person:', p.name);
-        if (nm && nm.trim()){ p.name = nm.trim(); await dbPut('people', p); render(); }
+        if (nm && nm.trim()){
+          p.name = nm.trim();
+          if (p.drive){
+            const m = JSON.parse(localStorage.getItem('driveNames') || '{}');
+            m[p.sig] = p.name;
+            localStorage.setItem('driveNames', JSON.stringify(m));
+          } else {
+            await dbPut('people', p);
+          }
+          render();
+        }
       };
       pw.appendChild(el);
     }
@@ -296,31 +358,50 @@ function render(){
     galleryTitle += ' — closest matches first';
   }
   $('galleryTitle').textContent = galleryTitle;
-  if (!photos.length){ gw.innerHTML = '<div class="empty">No photos here yet.</div>'; return; }
+  updateDlBtn();
+  if (!photos.length){ gw.innerHTML = '<div class="empty">No photos here yet.</div>'; $('moreBtn').style.display = 'none'; return; }
   gw.innerHTML = '';
-  for (const ph of photos){
-    const d = document.createElement('div'); d.className = 'ph';
-    const img = document.createElement('img'); img.src = blobUrl(ph.blob); img.alt = ph.name; img.loading = 'lazy';
+  const shown = photos.slice(0, renderLimit);
+  for (const ph of shown){
+    const d = document.createElement('div'); d.className = 'ph' + (selected.has(ph.id) ? ' selected' : '');
+    const img = document.createElement('img'); img.src = photoUrl(ph, 500); img.alt = ph.name; img.loading = 'lazy';
     img.onclick = () => openViewer(ph);
-    const del = document.createElement('button'); del.className = 'del'; del.textContent = '×'; del.title = 'Remove this photo';
-    del.onclick = async (ev) => {
-      ev.stopPropagation();
-      if (!confirm('Remove this photo from the library?')) return;
-      await dbDel('photos', ph.id);
-      for (const f of state.faces.filter(f => f.photoId === ph.id)) await dbDel('faces', f.id);
-      state.photos = state.photos.filter(x => x.id !== ph.id);
-      state.faces = state.faces.filter(x => x.photoId !== ph.id);
-      render();
-    };
-    d.appendChild(img); d.appendChild(del); gw.appendChild(d);
+    d.appendChild(img);
+    const cb = document.createElement('button'); cb.className = 'cb'; cb.textContent = selected.has(ph.id) ? '✓' : '';
+    cb.title = 'Select this photo (for bulk download)';
+    cb.onclick = (ev) => { ev.stopPropagation(); if (selected.has(ph.id)) selected.delete(ph.id); else selected.add(ph.id); render(); };
+    d.appendChild(cb);
+    const dlb = document.createElement('a'); dlb.className = 'dlb'; dlb.textContent = '⬇'; dlb.title = 'Download this photo';
+    dlb.href = downloadUrl(ph); dlb.setAttribute('download', ph.name || 'photo.jpg');
+    dlb.onclick = ev => ev.stopPropagation();
+    d.appendChild(dlb);
+    if (!ph.blob){
+      const badge = document.createElement('span'); badge.className = 'src'; badge.textContent = 'Drive';
+      d.appendChild(badge);
+    } else {
+      const del = document.createElement('button'); del.className = 'del'; del.textContent = '×'; del.title = 'Remove this photo';
+      del.onclick = async (ev) => {
+        ev.stopPropagation();
+        if (!confirm('Remove this photo from the library?')) return;
+        await dbDel('photos', ph.id);
+        for (const f of state.faces.filter(f => f.photoId === ph.id)) await dbDel('faces', f.id);
+        state.photos = state.photos.filter(x => x.id !== ph.id);
+        state.faces = state.faces.filter(x => x.photoId !== ph.id);
+        selected.delete(ph.id);
+        render();
+      };
+      d.appendChild(del);
+    }
+    gw.appendChild(d);
   }
+  $('moreBtn').style.display = photos.length > renderLimit ? 'inline-block' : 'none';
 }
 function escapeHtml(s){ return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 /* ---------- Viewer ---------- */
 function openViewer(ph){
-  $('viewerImg').src = blobUrl(ph.blob);
-  const dl = $('viewerDl'); dl.href = blobUrl(ph.blob); dl.download = ph.name || 'photo.jpg';
+  $('viewerImg').src = photoUrl(ph, 1600);
+  const dl = $('viewerDl'); dl.href = downloadUrl(ph); dl.download = ph.name || 'photo.jpg';
   $('viewer').style.display = 'flex';
 }
 $('viewerClose').onclick = () => { $('viewer').style.display = 'none'; };
@@ -410,12 +491,104 @@ $('searchInput').onchange = e => { if (e.target.files[0]) searchByPhoto(e.target
 $('searchCamBtn').onclick = () => $('searchCamInput').click();
 $('searchCamInput').onchange = e => { if (e.target.files[0]) searchByPhoto(e.target.files[0]); e.target.value = ''; };
 $('clearBtn').onclick = async () => {
-  if (!confirm('Remove ALL photos and people from this library (on this device)?')) return;
+  if (!confirm('Remove all photos you uploaded on THIS device? (Drive folder photos stay — they come from the shared folder.)')) return;
   await dbClearAll();
-  state = { photos: [], faces: [], people: [] }; activePersonId = null;
-  status('Library cleared.');
+  state = { photos: [], faces: [], people: [] }; activePersonId = null; lastMatch = null; selected.clear();
+  await mergeManifest();
+  status('Device library cleared. Drive photos are still shown.');
   render();
 };
+$('moreBtn').onclick = () => { renderLimit += 120; render(); };
+$('selAllBtn').onclick = () => {
+  const ids = activePersonId ? personPhotoIds(activePersonId) : null;
+  state.photos.filter(ph => !ids || ids.has(ph.id)).forEach(ph => selected.add(ph.id));
+  render();
+};
+$('selClearBtn').onclick = () => { selected.clear(); render(); };
+$('dlSelBtn').onclick = async () => {
+  const st = $('dlStatus');
+  const items = state.photos.filter(ph => selected.has(ph.id));
+  if (!items.length){ st.textContent = 'Tick the circle on photos to select them first.'; return; }
+  if (items.length === 1){
+    const a = document.createElement('a'); a.href = downloadUrl(items[0]); a.download = items[0].name || 'photo.jpg'; a.click();
+    st.textContent = 'Downloading 1 photo.';
+    return;
+  }
+  if (typeof JSZip === 'undefined'){
+    st.textContent = 'Downloading one by one…';
+    for (const ph of items){
+      const a = document.createElement('a'); a.href = downloadUrl(ph); a.download = ph.name || 'photo.jpg'; a.click();
+      await new Promise(r => setTimeout(r, 900));
+    }
+    st.textContent = 'Downloads started for ' + items.length + ' photos.';
+    return;
+  }
+  const zip = new JSZip();
+  let ok = 0; const failed = [];
+  for (let i = 0; i < items.length; i++){
+    const ph = items[i];
+    st.textContent = 'Preparing ' + (i + 1) + ' of ' + items.length + '…';
+    try {
+      let blob = ph.blob || null;
+      if (!blob){
+        try {
+          const r = await fetch('https://drive.google.com/uc?export=download&id=' + ph.driveId);
+          if (!r.ok) throw new Error('dl');
+          blob = await r.blob();
+        } catch(e){
+          const r2 = await fetch('https://drive.google.com/thumbnail?id=' + ph.driveId + '&sz=w1600');
+          if (!r2.ok) throw new Error('thumb');
+          blob = await r2.blob();
+        }
+      }
+      zip.file(ph.name || ('photo-' + (i + 1) + '.jpg'), blob);
+      ok++;
+    } catch(e){ failed.push(ph); }
+  }
+  if (ok){
+    st.textContent = 'Making the ZIP file…';
+    const zb = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(zb); a.download = 'company-photos.zip'; a.click();
+  }
+  st.textContent = 'Done: ' + ok + ' photo(s) in the ZIP.' + (failed.length ? ' ' + failed.length + ' could not be fetched — use their single ⬇ buttons instead.' : '');
+};
+
+/* ---------- Drive folder (manifest) ---------- */
+let uidC = 0;
+async function mergeManifest(){
+  try {
+    const r = await fetch('manifest.json', { cache: 'no-cache' });
+    if (!r.ok) return;
+    const data = await r.json();
+    driveMeta = data;
+    const savedNames = JSON.parse(localStorage.getItem('driveNames') || '{}');
+    for (const mp of data.photos){
+      if (state.photos.some(x => x.id === 'd' + mp.id)) continue;
+      const photo = { id: 'd' + mp.id, name: mp.name, driveId: mp.id, w: mp.w, h: mp.h, addedAt: 0 };
+      state.photos.push(photo);
+      for (const f of (mp.faces || [])){
+        const descriptor = f.d;
+        const box = { x: f.box.x, y: f.box.y, width: f.box.w, height: f.box.h };
+        const match = bestPerson(descriptor);
+        let personId;
+        if (match){
+          personId = match.person.id;
+          const p = match.person, n = p.count || 1;
+          p.ref = p.ref.map((v, i) => (v * n + descriptor[i]) / (n + 1));
+          p.count = n + 1;
+        } else {
+          const sig = photo.id + ':' + box.x + ',' + box.y;
+          const person = { id: 'dp' + (++uidC) + '_' + Date.now().toString(36), name: savedNames[sig] || ('Person ' + (state.people.length + 1)), ref: descriptor, count: 1, drive: true, sig, thumbRef: { photoId: photo.id, box } };
+          state.people.push(person);
+          personId = person.id;
+        }
+        state.faces.push({ id: 'df' + (++uidC) + '_' + Date.now().toString(36), photoId: photo.id, personId, descriptor, box });
+      }
+    }
+    const when = data.generatedAt ? new Date(data.generatedAt) : null;
+    $('driveInfo').textContent = '📁 ' + data.photos.length + ' photos from the Drive folder "' + (data.folderName || 'Company Photos') + '"' + (when ? ' • updated ' + when.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) + ', ' + when.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) : '') + ' — new photos added to that folder appear here after a sync.';
+  } catch(e){ console.warn('manifest', e); }
+}
 
 (async function init(){
   try {
@@ -423,6 +596,7 @@ $('clearBtn').onclick = async () => {
     state.photos = await dbAll('photos');
     state.faces = await dbAll('faces');
     state.people = await dbAll('people');
+    await mergeManifest();
     render();
   } catch(e){ console.warn('DB load failed', e); }
   try {
