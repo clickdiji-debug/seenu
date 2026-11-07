@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script>if (location.pathname.endsWith('/photos')) location.replace(location.pathname + '/' + location.search + location.hash);</script>
-<title>Company Photos — Find Photos by Person | srinivas.si</title>
-<meta name="description" content="Upload company photos and find all photos of any person with face matching.">
+<title>Find Your Photos | srinivas.si</title>
+<meta name="description" content="Company photos from the shared Drive folder — find all photos of any person with face matching.">
 <style>
   :root{ --violet:#6D28D9; --violet-dark:#4C1D95; --ink:#1F2430; --grey:#6B7280; --line:#E7E4F5; --bg:#F7F5FF; --card:#fff; }
   *{ box-sizing:border-box; }
@@ -58,29 +58,17 @@
 </head>
 <body>
 <header>
-  <h1>📸 Company Photos — Find by Person</h1>
-  <p>Upload company photos once. Then tap a person — or search with one photo — and all photos of that person come up.</p>
+  <h1>📸 Find Your Photos</h1>
+  <p>All company photos from the shared Drive folder. Tap a person — or search with one photo — and all their photos come up.</p>
 </header>
 
 <div class="wrap">
 
-  <div class="card">
-    <h2>1. Upload company photos</h2>
-    <p class="sub">Select many photos at once. Faces are detected and grouped by person automatically.</p>
-    <input type="file" id="photoInput" accept="image/*" multiple style="display:none">
-    <input type="file" id="camInput" accept="image/*" capture="environment" style="display:none">
-    <div class="btnrow">
-      <button class="btn" id="uploadBtn">⬆ Upload Photos</button>
-      <button class="btn ghost" id="camBtn">📷 Take Photo</button>
-      <button class="btn ghost" id="clearBtn">Clear all data</button>
-    </div>
-    <div id="status">Loading face-matching engine…</div>
-    <div id="progressWrap"><div id="progressBar"></div></div>
-    <div class="stats" id="stats"></div>
-  </div>
+  <div id="status" style="font-size:13.5px;color:var(--violet-dark);margin:2px 4px 0;">Loading photo library…</div>
+  <div class="stats" id="stats" style="margin:2px 4px 14px;"></div>
 
   <div class="card">
-    <h2>2. Find a person with one photo</h2>
+    <h2>Find a person with one photo</h2>
     <p class="sub">Give any one photo of a person — or take their photo with the camera right now — and their photos from the whole library will come up.</p>
     <input type="file" id="searchInput" accept="image/*" style="display:none">
     <input type="file" id="searchCamInput" accept="image/*" capture="environment" style="display:none">
@@ -92,10 +80,19 @@
     <div id="searchStatus" style="font-size:13.5px;margin-top:10px;color:var(--violet-dark);"></div>
   </div>
 
+  <div id="camModal" style="display:none;position:fixed;inset:0;background:rgba(10,5,25,.94);z-index:60;padding:16px;box-sizing:border-box;">
+    <video id="camVideo" autoplay playsinline muted style="width:100%;max-height:74vh;border-radius:14px;background:#000;object-fit:contain;"></video>
+    <div class="btnrow" style="justify-content:center;margin-top:14px;">
+      <button class="btn" id="camSnap">📸 Capture</button>
+      <button class="btn ghost" id="camClose">Cancel</button>
+    </div>
+    <p style="color:#fff;text-align:center;font-size:13px;margin-top:10px;">Point the camera at the person's face, then tap Capture.</p>
+  </div>
+
   <div class="card">
     <h2>People</h2>
     <p class="sub">Tap a person to see only their photos. Tap the name to rename (example: their real name).</p>
-    <div class="people" id="people"><div class="empty">No people yet — upload photos first.</div></div>
+    <div class="people" id="people"><div class="empty">No people yet — the library is still loading.</div></div>
   </div>
 
   <div class="card">
@@ -229,8 +226,8 @@ async function processFiles(files){
     try {
       const bmp = await createImageBitmap(file);
       const { cvs, scale } = toCanvas(bmp);
-      const dets = await faceapi.detectAllFaces(cvs, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
-        .withFaceLandmarks(true).withFaceDescriptors();
+      const dets = await faceapi.detectAllFaces(cvs, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.55 }))
+        .withFaceLandmarks().withFaceDescriptors();
       const photoId = 'p' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
       const photo = { id: photoId, blob: file, name: file.name, addedAt: Date.now() };
       await dbPut('photos', photo); state.photos.push(photo);
@@ -294,7 +291,7 @@ function personPhotoIds(personId){
 function render(){
   $('stats').textContent = state.photos.length + ' photo(s) • ' + state.people.length + ' person(s) • ' + state.faces.length + ' face(s)';
   const pw = $('people');
-  if (!state.people.length){ pw.innerHTML = '<div class="empty">No people yet — upload photos first.</div>'; }
+  if (!state.people.length){ pw.innerHTML = '<div class="empty">No people yet — the library is still loading.</div>'; }
   else {
     pw.innerHTML = '';
     const all = document.createElement('div');
@@ -425,7 +422,7 @@ function personScore(descriptor, p){
 }
 function runSearch(descriptor){
   const ss = $('searchStatus');
-  if (!state.people.length){ ss.textContent = 'Library is empty — upload company photos first (step 1).'; return; }
+  if (!state.people.length){ ss.textContent = 'Library is still loading — wait a few seconds and try again.'; return; }
   let best = null, bestD = Infinity, secondD = Infinity;
   for (const p of state.people){
     const d = personScore(descriptor, p);
@@ -459,8 +456,8 @@ async function searchByPhoto(file){
   try {
     const bmp = await createImageBitmap(file);
     const { cvs, scale } = toCanvas(bmp);
-    const dets = await faceapi.detectAllFaces(cvs, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.5 }))
-      .withFaceLandmarks(true).withFaceDescriptors();
+    const dets = await faceapi.detectAllFaces(cvs, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.55 }))
+      .withFaceLandmarks().withFaceDescriptors();
     if (!dets.length){ ss.textContent = 'No clear face found in that photo — try a clearer, front-facing photo.'; return; }
     const faces = dets.map(det => {
       const box = { x: det.detection.box.x / scale, y: det.detection.box.y / scale, width: det.detection.box.width / scale, height: det.detection.box.height / scale };
@@ -491,22 +488,33 @@ async function searchByPhoto(file){
 }
 
 /* ---------- Wire up ---------- */
-$('uploadBtn').onclick = () => $('photoInput').click();
-$('photoInput').onchange = e => { processFiles(e.target.files); e.target.value = ''; };
-$('camBtn').onclick = () => $('camInput').click();
-$('camInput').onchange = e => { if (e.target.files.length) processFiles(e.target.files); e.target.value = ''; };
 $('searchBtn').onclick = () => $('searchInput').click();
 $('searchInput').onchange = e => { if (e.target.files[0]) searchByPhoto(e.target.files[0]); e.target.value = ''; };
-$('searchCamBtn').onclick = () => $('searchCamInput').click();
-$('searchCamInput').onchange = e => { if (e.target.files[0]) searchByPhoto(e.target.files[0]); e.target.value = ''; };
-$('clearBtn').onclick = async () => {
-  if (!confirm('Remove all photos you uploaded on THIS device? (Drive folder photos stay — they come from the shared folder.)')) return;
-  await dbClearAll();
-  state = { photos: [], faces: [], people: [] }; activePersonId = null; lastMatch = null; selected.clear();
-  await mergeManifest();
-  status('Device library cleared. Drive photos are still shown.');
-  render();
+let camStream = null;
+async function openCamera(){
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ $('searchCamInput').click(); return; }
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    $('camVideo').srcObject = camStream;
+    $('camModal').style.display = 'block';
+  } catch(e){ $('searchCamInput').click(); }
+}
+function closeCamera(){
+  if (camStream){ camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  $('camModal').style.display = 'none';
+}
+$('searchCamBtn').onclick = openCamera;
+$('camClose').onclick = closeCamera;
+$('camSnap').onclick = () => {
+  const v = $('camVideo');
+  if (!v.videoWidth){ closeCamera(); return; }
+  const cvs = document.createElement('canvas');
+  cvs.width = v.videoWidth; cvs.height = v.videoHeight;
+  cvs.getContext('2d').drawImage(v, 0, 0);
+  closeCamera();
+  cvs.toBlob(b => { if (b) searchByPhoto(new File([b], 'camera.jpg', { type: 'image/jpeg' })); }, 'image/jpeg', 0.92);
 };
+$('searchCamInput').onchange = e => { if (e.target.files[0]) searchByPhoto(e.target.files[0]); e.target.value = ''; };
 $('moreBtn').onclick = () => { renderLimit += 48; render(); };
 $('selAllBtn').onclick = () => {
   const ids = activePersonId ? personPhotoIds(activePersonId) : null;
@@ -694,15 +702,15 @@ function ensureEngine(){
         if (faceapi.tf && faceapi.tf.setBackend && !hasWebgl) await faceapi.tf.setBackend('cpu');
         if (faceapi.tf && faceapi.tf.ready) await faceapi.tf.ready();
       } catch(e){ console.warn('Backend setup', e); }
-      await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-      await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
+      await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+      await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
       await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
       modelsReady = true;
       status('Ready — photos, people and face search are all set.');
       return true;
     } catch(e){
       enginePromise = null;
-      status('Face engine could not load (slow connection?). Photos and downloads still work — tap Upload or Search to try loading it again.');
+      status('Face engine could not load (slow connection?). Photos and downloads still work — tap Search to try loading it again.');
       return false;
     }
   })();
@@ -720,7 +728,7 @@ function ensureEngine(){
   status('Loading photo library…');
   await mergeManifest();
   render();
-  status(state.photos.length ? 'Photos ready — browse and download now. Face search loads when you tap Upload or Search (one-time download, best on WiFi).' : 'Upload photos to start.');
+  status(state.photos.length ? 'Photos ready — browse and download now. Face search loads when you tap Search (one-time download, best on WiFi).' : 'Upload photos to start.');
 })();
 </script>
 </body>
