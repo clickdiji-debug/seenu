@@ -84,6 +84,7 @@
     <video id="camVideo" autoplay playsinline muted style="width:100%;max-height:74vh;border-radius:14px;background:#000;object-fit:contain;"></video>
     <div class="btnrow" style="justify-content:center;margin-top:14px;">
       <button class="btn" id="camSnap">📸 Capture</button>
+      <button class="btn ghost" id="camFlip">🔄 Flip camera</button>
       <button class="btn ghost" id="camClose">Cancel</button>
     </div>
     <p style="color:#fff;text-align:center;font-size:13px;margin-top:10px;">Point the camera at the person's face, then tap Capture.</p>
@@ -491,14 +492,29 @@ async function searchByPhoto(file){
 $('searchBtn').onclick = () => $('searchInput').click();
 $('searchInput').onchange = e => { if (e.target.files[0]) searchByPhoto(e.target.files[0]); e.target.value = ''; };
 let camStream = null;
+let camFacing = 'environment';
+async function startCam(){
+  camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: camFacing }, audio: false });
+  const v = $('camVideo');
+  v.srcObject = camStream;
+  v.style.transform = camFacing === 'user' ? 'scaleX(-1)' : 'none';
+}
 async function openCamera(){
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ $('searchCamInput').click(); return; }
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-    $('camVideo').srcObject = camStream;
+    await startCam();
     $('camModal').style.display = 'block';
   } catch(e){ $('searchCamInput').click(); }
 }
+$('camFlip').onclick = async () => {
+  camFacing = camFacing === 'environment' ? 'user' : 'environment';
+  if (camStream){ camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  try { await startCam(); }
+  catch(e){
+    camFacing = camFacing === 'environment' ? 'user' : 'environment';
+    try { await startCam(); } catch(e2){ closeCamera(); $('searchCamInput').click(); }
+  }
+};
 function closeCamera(){
   if (camStream){ camStream.getTracks().forEach(t => t.stop()); camStream = null; }
   $('camModal').style.display = 'none';
