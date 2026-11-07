@@ -561,57 +561,104 @@ $('dlSelBtn').onclick = async () => {
   st.textContent = 'Done: ' + ok + ' photo(s) in the ZIP.' + (failed.length ? ' ' + failed.length + ' could not be fetched — use their single ⬇ buttons instead.' : '');
 };
 
-/* ---------- Drive folder (manifest) ---------- */
+/* ---------- Drive folder (chunked library) ---------- */
 let uidC = 0;
-async function fetchManifest(){
+let libMissing = [];
+let libIndex = null;
+async function fetchJson(url){
   let lastErr = null;
   for (let i = 0; i < 3; i++){
     try {
-      const r = await fetch('manifest.json', { cache: 'no-cache' });
+      const r = await fetch(url, { cache: 'no-cache' });
       if (r.ok) return await r.json();
       lastErr = new Error('HTTP ' + r.status);
     } catch(e){ lastErr = e; }
-    await new Promise(res => setTimeout(res, 1500));
+    await new Promise(res => setTimeout(res, 1200));
   }
   throw lastErr || new Error('fetch failed');
 }
-async function mergeManifest(){
-  $('driveInfo').textContent = '📁 Loading the Drive photo library…';
-  try {
-    const data = await fetchManifest();
-    driveMeta = data;
-    const savedNames = JSON.parse(localStorage.getItem('driveNames') || '{}');
-    for (const mp of data.photos){
-      if (state.photos.some(x => x.id === 'd' + mp.id)) continue;
-      const photo = { id: 'd' + mp.id, name: mp.name, driveId: mp.id, w: mp.w, h: mp.h, addedAt: 0 };
-      state.photos.push(photo);
-      for (const f of (mp.faces || [])){
-        const descriptor = f.d;
-        const box = { x: f.box.x, y: f.box.y, width: f.box.w, height: f.box.h };
-        const match = bestPerson(descriptor);
-        let personId;
-        if (match){
-          personId = match.person.id;
-          const p = match.person, n = p.count || 1;
-          p.ref = p.ref.map((v, i) => (v * n + descriptor[i]) / (n + 1));
-          p.count = n + 1;
-        } else {
-          const sig = photo.id + ':' + box.x + ',' + box.y;
-          const person = { id: 'dp' + (++uidC) + '_' + Date.now().toString(36), name: savedNames[sig] || ('Person ' + (state.people.length + 1)), ref: descriptor, count: 1, drive: true, sig, thumbRef: { photoId: photo.id, box } };
-          state.people.push(person);
-          personId = person.id;
-        }
-        state.faces.push({ id: 'df' + (++uidC) + '_' + Date.now().toString(36), photoId: photo.id, personId, descriptor, box });
+function decodeDesc(s){
+  const bin = atob(s);
+  const out = new Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) / 127.5 - 1;
+  return out;
+}
+function mergeChunkPhotos(chunk, savedNames){
+  for (const mp of chunk.photos){
+    if (state.photos.some(x => x.id === 'd' + mp.i)) continue;
+    const photo = { id: 'd' + mp.i, name: mp.n, driveId: mp.i, w: mp.w, h: mp.h, addedAt: 0 };
+    state.photos.push(photo);
+    for (const f of (mp.f || [])){
+      const descriptor = decodeDesc(f.d);
+      const box = { x: f.b[0], y: f.b[1], width: f.b[2], height: f.b[3] };
+      const match = bestPerson(descriptor);
+      let personId;
+      if (match){
+        personId = match.person.id;
+        const p = match.person, n = p.count || 1;
+        p.ref = p.ref.map((v, i) => (v * n + descriptor[i]) / (n + 1));
+        p.count = n + 1;
+      } else {
+        const sig = photo.id + ':' + box.x + ',' + box.y;
+        const person = { id: 'dp' + (++uidC) + '_' + Date.now().toString(36), name: savedNames[sig] || ('Person ' + (state.people.length + 1)), ref: descriptor, count: 1, drive: true, sig, thumbRef: { photoId: photo.id, box } };
+        state.people.push(person);
+        personId = person.id;
       }
+      state.faces.push({ id: 'df' + (++uidC) + '_' + Date.now().toString(36), photoId: photo.id, personId, descriptor, box });
     }
-    const when = data.generatedAt ? new Date(data.generatedAt) : null;
-    $('driveInfo').textContent = '📁 ' + data.photos.length + ' photos from the Drive folder "' + (data.folderName || 'Company Photos') + '"' + (when ? ' • updated ' + when.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) + ', ' + when.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) : '') + ' — new photos added to that folder appear here after a sync.';
+  }
+}
+function setDriveInfoFinal(){
+  const index = libIndex;
+  if (!index) return;
+  if (libMissing.length){
+    const loaded = state.photos.filter(p => p.driveId).length;
+    $('driveInfo').innerHTML = '📁 Loaded ' + loaded + ' of ' + index.photos + ' Drive photos — some parts failed on this connection. <a href="#" id="mfRetry" style="color:var(--violet);font-weight:700;">Tap to load the rest</a>';
+    const rt = $('mfRetry');
+    if (rt) rt.onclick = async (ev) => {
+      ev.preventDefault();
+      const savedNames = JSON.parse(localStorage.getItem('driveNames') || '{}');
+      const still = [];
+      for (const c of libMissing){
+        try { mergeChunkPhotos(await fetchJson('chunk-' + c + '.json'), savedNames); }
+        catch(e){ still.push(c); }
+        render();
+      }
+      libMissing = still;
+      setDriveInfoFinal();
+      render();
+    };
+  } else {
+    const when = index.generatedAt ? new Date(index.generatedAt) : null;
+    $('driveInfo').textContent = '📁 ' + index.photos + ' photos from the Drive folder "' + (index.folderName || 'Company Photos') + '"' + (when ? ' • updated ' + when.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) + ', ' + when.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) : '') + ' — new photos added to that folder appear here after a sync.';
+  }
+}
+async function mergeManifest(){
+  const savedNames = JSON.parse(localStorage.getItem('driveNames') || '{}');
+  let index;
+  try {
+    index = await fetchJson('library.json');
   } catch(e){
-    console.warn('manifest', e);
+    console.warn('library index', e);
     $('driveInfo').innerHTML = '📁 Drive library could not load (slow connection?). <a href="#" id="mfRetry" style="color:var(--violet);font-weight:700;">Tap to retry</a>';
     const rt = $('mfRetry');
     if (rt) rt.onclick = async (ev) => { ev.preventDefault(); await mergeManifest(); render(); };
+    return;
   }
+  libIndex = index;
+  driveMeta = index;
+  libMissing = [];
+  for (let c = 0; c < index.chunks; c++){
+    try {
+      mergeChunkPhotos(await fetchJson('chunk-' + c + '.json'), savedNames);
+    } catch(e){ libMissing.push(c); }
+    if (c < index.chunks - 1 && !libMissing.length){
+      $('driveInfo').textContent = '📁 Loading the Drive photo library… ' + state.photos.filter(p => p.driveId).length + ' of ' + index.photos + ' photos';
+    }
+    render();
+  }
+  setDriveInfoFinal();
+  render();
 }
 
 let enginePromise = null;
