@@ -20,6 +20,7 @@
   .btn:active{ transform:scale(.98); }
   .btn.ghost{ background:#EDE9FE; color:var(--violet-dark); }
   .btn.small{ padding:7px 12px; font-size:12.5px; border-radius:7px; }
+  .btnrow{ display:flex; flex-wrap:wrap; gap:8px; }
   #status{ font-size:13.5px; margin-top:10px; min-height:20px; color:var(--violet-dark); }
   #progressWrap{ display:none; background:#EDE9FE; border-radius:99px; height:9px; margin-top:8px; overflow:hidden; }
   #progressBar{ height:100%; width:0%; background:var(--violet); transition:width .25s; }
@@ -59,9 +60,11 @@
     <p class="sub">Select many photos at once. Faces are detected and grouped by person automatically.</p>
     <input type="file" id="photoInput" accept="image/*" multiple style="display:none">
     <input type="file" id="camInput" accept="image/*" capture="environment" style="display:none">
-    <button class="btn" id="uploadBtn">⬆ Upload Photos</button>
-    <button class="btn ghost" id="camBtn" style="margin-left:8px;">📷 Take Photo</button>
-    <button class="btn ghost" id="clearBtn" style="margin-left:8px;">Clear all data</button>
+    <div class="btnrow">
+      <button class="btn" id="uploadBtn">⬆ Upload Photos</button>
+      <button class="btn ghost" id="camBtn">📷 Take Photo</button>
+      <button class="btn ghost" id="clearBtn">Clear all data</button>
+    </div>
     <div id="status">Loading face-matching engine…</div>
     <div id="progressWrap"><div id="progressBar"></div></div>
     <div class="stats" id="stats"></div>
@@ -72,8 +75,10 @@
     <p class="sub">Give any one photo of a person — or take their photo with the camera right now — and their photos from the whole library will come up.</p>
     <input type="file" id="searchInput" accept="image/*" style="display:none">
     <input type="file" id="searchCamInput" accept="image/*" capture="environment" style="display:none">
-    <button class="btn" id="searchBtn">🔍 Search by Photo</button>
-    <button class="btn ghost" id="searchCamBtn" style="margin-left:8px;">📷 Take Photo</button>
+    <div class="btnrow">
+      <button class="btn" id="searchBtn">🔍 Search by Photo</button>
+      <button class="btn ghost" id="searchCamBtn">📷 Take Photo</button>
+    </div>
     <div id="facePick" style="display:none;margin-top:12px;"></div>
     <div id="searchStatus" style="font-size:13.5px;margin-top:10px;color:var(--violet-dark);"></div>
   </div>
@@ -257,8 +262,7 @@ function render(){
     pw.innerHTML = '';
     const all = document.createElement('div');
     all.className = 'person' + (activePersonId === null ? ' active' : '');
-    all.innerHTML = '<img alt="" style="border-color:#C4B5FD;background:#EDE9FE"><div class="nm">Everyone</div><div class="ct">' + state.photos.length + ' photos</div>';
-    all.querySelector('img').style.visibility = 'hidden';
+    all.innerHTML = '<div style="width:64px;height:64px;border-radius:50%;background:#EDE9FE;border:2px solid #C4B5FD;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:28px;">👥</div><div class="nm">Everyone</div><div class="ct">' + state.photos.length + ' photos</div>';
     all.onclick = () => { activePersonId = null; lastMatch = null; render(); };
     pw.appendChild(all);
     for (const p of state.people){
